@@ -1,0 +1,10 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "mouse-trading",
+  "version": "0.1.0",
+  "description": "Plans, scaffolds and ships an end-to-end feature slice in this modular monolith: file inventory by layer suffix, the registration points that are easy to forget, and the nine quality gates that must pass before a commit.",
+  "author": {
+    "name": "Serhii"
+  },
+  "keywords": ["modular-monolith", "angular", "fastify", "architecture", "scaffold"]
+}
