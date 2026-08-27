@@ -4,7 +4,7 @@ A Claude Code plugin for the **mouse-springconsult** admin panel — three skill
 carry a feature from plan to commit through the architecture that codebase enforces.
 
 The plugin lives in its own repository but is not generic: every skill references
-that project's layout (`apps/api/src/modules/`, `apps/web/src/app/`, its nine quality
+that project's layout (`apps/api/src/modules/`, `apps/web/src/app/`, its ten quality
 gates, its dependency-cruiser rules). Installing it elsewhere would load three skills
 that describe files which do not exist there.
 
@@ -13,9 +13,9 @@ that describe files which do not exist there.
   marketplace.json     single-plugin marketplace; the plugin is the repository root
   plugin.json
 skills/
-  feature-plan/        file inventory by layer suffix + eight registration points
+  feature-plan/        file inventory by layer class + eight registration points
   feature-scaffold/    the slice itself, pointed at the reference implementation
-  feature-ship/        nine gates, migration down/up, smoke, docs, commit
+  feature-ship/        ten gates, migration down/up, smoke, docs, commit
 ```
 
 ## Installation
@@ -85,15 +85,16 @@ restate it. They hold what it does not:
 
 - **eight registration points** — the places a new file has to be wired into, and
   which are easy to forget: `FEATURES` in `apps/web/eslint.config.js`, the
-  `migrations` array in `db/migrate.ts`, `entities` in `createDataSource`, the route
-  in `app.routes.ts`, and the `ports-and-domain-have-no-io` rule in
-  `.dependency-cruiser.cjs`, which hardcodes a single domain-type file name;
+  `migrations` array in `db/migrations-list.ts`, `entities` in `createDataSource`, the
+  route in `app.routes.ts`, and the `ENTITIES` list in `.dependency-cruiser.cjs`, which
+  names the entity classes the ORM is allowed to reach;
 - **an exemplar map** — which existing file to read before creating each new one;
 - **order of creation**, bottom-up, so each file rests on types that already exist;
-- **a symptom-to-cause table** for the nine gates;
-- **two failure modes that are invisible until they bite**: a single `whenStable()`
-  is not enough in a zoneless Angular test, and `db:migrate:revert` undoes exactly one
-  migration per call.
+- **a symptom-to-cause table** for the ten gates;
+- **three failure modes that are invisible until they bite**: a single `whenStable()`
+  is not enough in a zoneless Angular test, `db:migrate:revert` undoes exactly one
+  migration per call, and the `db:*` scripts run `dist/`, so a stale build fails as a
+  missing module rather than as a migration error.
 
 ## Limits
 
@@ -102,8 +103,8 @@ a product card has, and they do not replace a conversation where the choice is
 genuinely open.
 
 Architectural boundaries are enforced by the target project's gates, not by the
-editor: `deps:check` (dependency-cruiser), `lint` (ESLint), `typecheck` (`tsc` with
-`erasableSyntaxOnly`). Three things no gate catches, measured: a runtime import from a
+editor: `deps:check` (dependency-cruiser), `lint` (ESLint), `typecheck` and `build`
+(`tsc`). Three things no gate catches, measured: a runtime import from a
 `*.contract.ts` (drags zod into the browser bundle — both `web lint` and `web build`
-pass), file names such as `.service.ts`, and creating a `shared/` directory as long as
-nothing imports from it.
+pass), a file whose name does not match the class it exports, and creating a `shared/`
+directory as long as nothing imports from it.

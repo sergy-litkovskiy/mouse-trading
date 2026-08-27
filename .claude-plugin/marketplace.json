@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "mouse-trading",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "description": "Plans, scaffolds and ships an end-to-end feature slice in the mouse-springconsult modular monolith.",
       "author": {
         "name": "Serhii"

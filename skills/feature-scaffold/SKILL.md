@@ -1,6 +1,6 @@
 ---
 name: feature-scaffold
-description: "Creates the vertical slice for a feature in the mouse-springconsult modular monolith — contracts, ports, use-cases with tests, an EntitySchema repository, routes, migration, composition-root wiring, and the Angular feature with zoneless tests. Use when the user asks to generate, scaffold or implement a feature or an endpoint — create the products module, implement the upload endpoint, scaffold the media feature — with or without a prior plan. Writes code; quality gates and the commit belong to the feature-ship skill."
+description: "Creates the vertical slice for a feature in the mouse-springconsult modular monolith — contracts, entity, repository, service with tests, controller, migration, composition-root wiring, and the Angular feature with zoneless tests. Use when the user asks to generate, scaffold or implement a feature or an endpoint — create the products module, implement the upload endpoint, scaffold the media feature — with or without a prior plan. Writes code; quality gates and the commit belong to the feature-ship skill."
 ---
 
 # Scaffold a vertical slice
@@ -9,24 +9,24 @@ Take the feature name from the user's request. If no plan exists yet, draft a sh
 one and show it before writing files.
 
 Read the reference implementation before generating each file. The repository has
-one slice that already exists end to end, and it is more accurate than any template
-in this text:
+two slices that already exist end to end, and they are more accurate than any
+template in this text:
 
 | Creating | Read first |
 |---|---|
-| `<entity>.ts` | `modules/auth/user.ts` |
-| `<feature>.port.ts` | `modules/auth/auth.port.ts` |
-| `<feature>.errors.ts` | `modules/auth/auth.errors.ts` |
-| `<action>.use-case.ts` + spec | `modules/auth/login.use-case.ts` + `.spec.ts` |
-| `<feature>.fixtures.ts` | `modules/auth/auth.fixtures.ts` |
-| `<entity>.entity.ts`, `.repository.ts` | `modules/auth/user.entity.ts`, `user.repository.ts` |
-| `<feature>.routes.ts` | `modules/auth/auth.routes.ts` |
+| `<Entity>.ts` | `modules/auth/User.ts`, `modules/products/Product.ts` |
+| `<Feature>Errors.ts` | `modules/auth/AuthErrors.ts` |
+| `<Entity>Repository.ts` + spec | `modules/products/ProductRepository.ts` + `.spec.ts` |
+| `<Feature>Service.ts` + spec | `modules/auth/AuthService.ts` + `.spec.ts` |
+| `<Feature>Controller.ts` | `modules/auth/AuthController.ts` |
+| infrastructure class | `modules/auth/PasswordHasher.ts`, `SessionTokens.ts` |
 | Angular api / store / page + specs | `app/auth/auth-api.ts`, `auth-store.ts`, `login-page.ts` + `.spec.ts` |
 
-Run everything in containers. The two commands specific to scaffolding:
+Run everything in containers. The commands specific to scaffolding:
 
 ```bash
 docker compose run --rm api npm run db:migrate:new -- create-products-table
+docker compose run --rm --no-deps api npm run build      # db:* scripts run dist/
 docker compose run --rm --no-deps web npx ng generate component products/product-catalog
 ```
 
@@ -36,47 +36,72 @@ Bottom-up, so every file rests on types that already exist:
 
 1. `contracts/<feature>.contract.ts` (+ `<feature>-limits.ts` for runtime constants)
 2. `contracts/error-codes.ts` — add the codes
-3. `<entity>.ts` → `<feature>.port.ts` → `<feature>.errors.ts`
-4. `<action>.use-case.ts` + `.spec.ts` beside it
-5. `<feature>.fixtures.ts` — port test doubles
-6. `<entity>.entity.ts`, `<entity>.repository.ts`, `*.adapter.ts`
-7. `<feature>.routes.ts` → `index.ts`
-8. migration + registration in `db/migrate.ts`
+3. `<Entity>.ts` → `<Feature>Errors.ts`
+4. `<Entity>Repository.ts` + `.spec.ts` against a real Postgres
+5. `<Feature>Service.ts` + `.spec.ts` with stub subclasses in the same file
+6. infrastructure classes, if the feature has any
+7. `<Feature>Controller.ts` → `index.ts`
+8. migration + registration in `db/migrations-list.ts`
 9. `src/api.ts` — composition root
 10. `apps/web/src/app/<feature>/` + `app.routes.ts`
 
-## Factories, not classes
+## Classes, not factories
 
-Types are erased, so parameter properties (`constructor(private x: X)`) are illegal —
-which is why this codebase uses factory functions everywhere. A use-case takes ports
-and returns a function; a repository takes a `DataSource` and returns the port.
+Dependencies go through the constructor as parameter properties
+(`constructor(private readonly products: ProductRepository) {}`) and are created only
+in `src/api.ts`. The backend is compiled by `tsc` (ADR 0003), so this syntax is
+available — and so are the `@Entity`/`@Column` decorators that made the build
+necessary in the first place.
 
-Inject a `Clock` port. Never call `Date.now()` inside a use-case.
+Call `dataSource.getRepository(Entity)` inside the method, not in the constructor: a
+stub subclass in a spec must be constructible without a live `DataSource`.
 
-Map the ORM with `EntitySchema`, not decorators: snake_case column onto camelCase field.
+A Fastify handler is an **arrow field**, not a method — Fastify calls it detached and
+a method would lose `this`. `register(app, guard)` mounts the routes.
+
+Inject a `SystemClock`. Never call `Date.now()` inside a service.
+
+Every `@Column` states its type explicitly (`{ type: 'varchar', length: 200 }`):
+`verbatimModuleSyntax` erases a type-only import, so inferring from metadata would
+depend on how the file happens to write its imports.
 
 Domain errors extend `AppError` and state their own status code. Messages are
 English; the frontend composes user-facing text from `code`.
 
 ## Backend tests
 
-`node --test`, `*.spec.ts` beside the code. No use-case test starts Postgres — that
-is what the ports are for. Put the doubles in `<feature>.fixtures.ts`.
+`node --test` over the compiled output; `npm run test` runs `tsc` first. Specs sit
+beside the code they test.
 
-Worth testing: the happy path, every domain error, schema edges
-(`*.contract.spec.ts`), and each adapter directly.
+Test doubles are **subclasses of the real class**, declared in the spec that uses
+them, with `override` on every method they replace. No separate fixtures file: a fake
+that lives apart from its test drifts into describing its own semantics.
 
-In an adapter test, do not pin a date in the past: the token is then expired against
-the real clock. Round "now" to whole seconds instead — JWT `iat`/`exp` have
-second precision, so an unrounded date fails the round-trip comparison.
+What belongs where:
 
-## Routes
+- SQL semantics — `ilike`, LIKE escaping, `decimal`, pagination stability — go into
+  `<Entity>Repository.spec.ts` against a real Postgres. A JavaScript reimplementation
+  of a `where` clause tests the reimplementation.
+- Decisions — order of checks, what a query turns into, what is safe to hand out —
+  go into `<Feature>Service.spec.ts` with stub subclasses.
+- Schema constraints live in `db/schema.spec.ts` with raw SQL.
 
-A Fastify plugin: `safeParse` the payload, throw `AppError` with
-`code: validation_failed` and `details.fields` from `z.flattenError`, map to the DTO.
+Prefer the real collaborator when it is cheap: `SessionTokens` is genuine in
+`AuthService.spec.ts`, and that alone proves a token the service issues is a token it
+accepts back.
 
-A protected endpoint takes `createSessionGuard` from `modules/auth/index.ts` —
-through `index.ts`, never a deep import — and mounts it as a `preHandler`.
+Do not pin a date in the past when a JWT is involved — it is then expired against the
+real clock. Round "now" to whole seconds instead: `iat`/`exp` have second precision.
+
+## Controllers
+
+`safeParse` the payload, throw `AppError` with `code: validation_failed` and
+`details.fields` from `z.flattenError`, map the domain object into the DTO in a
+private method. No business logic, and no repository — only the service.
+
+A protected endpoint takes `authController.sessionGuard` from the composition root
+and mounts it as a `preHandler`. Cross-module access goes through `index.ts`, never
+a deep import.
 
 ## Angular
 
@@ -101,12 +126,13 @@ Creating the files is half the work. All eight registration points:
 
 1. `modules/<feature>/index.ts` — the module's public API
 2. `src/api.ts` → `entities` in `createDataSource`
-3. `src/api.ts` → build implementations, assemble use-cases, register routes with a prefix
-4. `db/migrate.ts` → import **and** the `migrations` array
+3. `src/api.ts` → `new …Repository` → `new …Service` → `new …Controller`, then
+   `app.register(async (instance) => { controller.register(instance, guard); }, { prefix })`
+4. `db/migrations-list.ts` → import **and** the `migrations` array
 5. `contracts/error-codes.ts` → the new codes
 6. `apps/web/src/app/app.routes.ts` → route, Ukrainian title, guard
 7. `apps/web/eslint.config.js` → `FEATURES`
-8. `apps/api/.dependency-cruiser.cjs` → the `ports-and-domain-have-no-io` rule
-   hardcodes `user\.ts`; a new domain type is unchecked until it is added there
+8. `apps/api/.dependency-cruiser.cjs` → the `ENTITIES` list; a new entity class fails
+   `orm-stays-in-repositories-and-entities` until it is named there
 
 Then hand over to the feature-ship skill.
